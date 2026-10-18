@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from stim_systemone.engine import Decision, DecisionEngine, Option, Question
 from stim_systemone.protocol import SystemOneApp
+from stim_systemone.rendering import render_content, render_option
 from stim_systemone.stub import StubDecisionEngine
 from stim_systemone.wire import NoulCriteria, NoulQuestion, SystemOneRequest
 
@@ -23,4 +24,6 @@ __all__ = [
     "SystemOneApp",
     "SystemOneRequest",
     "__version__",
+    "render_content",
+    "render_option",
 ]

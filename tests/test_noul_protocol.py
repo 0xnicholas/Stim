@@ -238,6 +238,110 @@ def test_noul_without_criteria_uses_bare_option_names() -> None:
     ]
 
 
+def test_sdk_round_trips_structured_state_and_instructions() -> None:
+    engine = RecordingEngine()
+    state: dict[str, Any] = {
+        "ticket": "Refund requested for a delayed order.",
+        "customer": {"tier": "gold", "tags": ["vip", "delayed"], "urgent": True},
+    }
+    instructions: dict[str, Any] = {
+        "task": "Should this be refunded?",
+        "policy": ["late delivery", "damaged item"],
+    }
+
+    with (
+        running_server(create_app(engine)) as server,
+        TypeSafeClient(api_key="test-key", base_url=server.base_url) as client,
+    ):
+        response = client.system_one(
+            state=state,
+            questions={"refund": Noul(instructions=instructions)},
+        )
+
+    assert response.nouls["refund"].noul == 0.5
+    state_text, questions = engine.calls[0]
+    assert state_text.startswith(
+        "ticket: Refund requested for a delayed order.\ncustomer:\n  tier: gold\n"
+    )
+    assert "  tags:\n    - vip\n    - delayed\n  urgent: true" in state_text
+    assert questions[0].instructions.startswith("task: Should this be refunded?\npolicy:\n")
+    assert "- late delivery" in questions[0].instructions
+    assert "- damaged item" in questions[0].instructions
+
+
+@pytest.mark.parametrize(
+    ("state", "rendered"),
+    [
+        ("plain", "plain"),
+        (None, ""),
+        (True, "true"),
+        (False, "false"),
+        (7, "7"),
+        (2.5, "2.5"),
+        (["first", 1, None], "- first\n- 1\n-"),
+        ({"nested": {"flag": True}}, "nested:\n  flag: true"),
+    ],
+)
+def test_state_accepts_every_json_shape(state: object, rendered: str) -> None:
+    engine = RecordingEngine()
+
+    with running_server(create_app(engine)) as server:
+        result = post(server, {"state": state, "questions": {"q": NOUL_QUESTION}})
+
+    assert result.status == 200
+    assert engine.calls[0][0] == rendered
+
+
+@pytest.mark.parametrize(
+    ("instructions", "rendered"),
+    [
+        ("do it", "do it"),
+        (None, ""),
+        (True, "true"),
+        (False, "false"),
+        (7, "7"),
+        (2.5, "2.5"),
+        ({"task": "?"}, "task: ?"),
+        (["do it", {"policy": "late delivery"}], "- do it\n-\n  policy: late delivery"),
+    ],
+)
+def test_instructions_accept_every_json_shape(instructions: object, rendered: str) -> None:
+    engine = RecordingEngine()
+    payload = {"state": "x", "questions": {"q": {"type": "noul", "instructions": instructions}}}
+
+    with running_server(create_app(engine)) as server:
+        result = post(server, payload)
+
+    assert result.status == 200
+    assert engine.calls[0][1][0].instructions == rendered
+
+
+def test_delimiter_literals_in_caller_text_are_rewritten_before_the_engine() -> None:
+    engine = RecordingEngine()
+    payload = {
+        "state": {"<|fim_prefix|>": "state <|fim_middle|>"},
+        "questions": {
+            "q": {
+                "type": "noul",
+                "instructions": "ask <|fim_suffix|>",
+                "criteria": {"true": "yes <|box_start|>", "false": "<|box_end|>"},
+            }
+        },
+    }
+
+    with running_server(create_app(engine)) as server:
+        result = post(server, payload)
+
+    assert result.status == 200
+    state_text, questions = engine.calls[0]
+    assert state_text == "<¦fim_prefix¦>: state <¦fim_middle¦>"
+    assert questions[0].instructions == "ask <¦fim_suffix¦>"
+    assert [(option.key, option.text) for option in questions[0].options] == [
+        ("no", "no: <¦box_end¦>"),
+        ("yes", "yes: yes <¦box_start¦>"),
+    ]
+
+
 def test_probabilities_are_normalized_before_rounding() -> None:
     engine = StubDecisionEngine(raw_scores={"rounded": [1.0, 2.0], "exact": [1.0, 3.0]})
     payload = {

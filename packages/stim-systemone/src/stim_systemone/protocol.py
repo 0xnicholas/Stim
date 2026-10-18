@@ -19,10 +19,10 @@ from collections.abc import (
 from typing import Any, NoReturn
 from uuid import uuid4
 
-from pydantic import JsonValue, ValidationError
+from pydantic import ValidationError
 
 from stim_systemone.engine import DecisionEngine, Option, Question
-from stim_systemone.rendering import render_content
+from stim_systemone.rendering import render_content, render_option
 from stim_systemone.wire import DEFAULT_MODEL, NoulQuestion, SystemOneRequest
 
 LOGGER = logging.getLogger("stim_systemone")
@@ -245,20 +245,10 @@ def _engine_question(name: str, question: NoulQuestion) -> Question:
         type="noul",
         instructions=render_content(question.instructions),
         options=(
-            Option(key="no", text=_render_option("no", criteria.false if criteria else None)),
-            Option(key="yes", text=_render_option("yes", criteria.true if criteria else None)),
+            Option(key="no", text=render_option("no", criteria.false if criteria else None)),
+            Option(key="yes", text=render_option("yes", criteria.true if criteria else None)),
         ),
     )
-
-
-def _render_option(key: str, description: JsonValue) -> str:
-    rendered = render_content(description)
-    if not rendered:
-        return key
-    if "\n" not in rendered:
-        return f"{key}: {rendered}"
-    indented = "\n".join(f"  {line}" for line in rendered.splitlines())
-    return f"{key}:\n{indented}"
 
 
 def _answers(

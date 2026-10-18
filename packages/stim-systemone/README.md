@@ -41,3 +41,15 @@ wire concern stays in this package.
 
 `StubDecisionEngine` is a deterministic engine used by the protocol tests; it implements
 the same contract as a model-backed engine and never handles HTTP or wire types.
+
+## Content rendering
+
+`stim_systemone.rendering` is the single renderer for every piece of caller content:
+state, instructions, noul criteria, and (once those question types land) choice option
+descriptions and score level texts. It renders JSON values as plain text without JSON
+punctuation, preserves object key order, and rewrites `<|name|>` special-token literals
+to `<¦name¦>` so caller text cannot forge a structural delimiter. The rendered form is
+frozen with the artifact and is shared by training, evaluation, and serving.
+
+The exact rules and examples are in
+[the artifact contract](../../docs/artifact-contract.md).
