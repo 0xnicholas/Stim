@@ -43,4 +43,11 @@ jobs:
         run: uv build --all-packages
 
       - name: Verify distributions
-        run: test "$(find dist -name '*.whl' | wc -l)" -eq 3
+        run: |
+          test "$(find dist -name '*.whl' | wc -l)" -eq 3
+          for package in stim_ai stim_serve stim_systemone; do
+            ls dist/${package}-*.whl >/dev/null
+          done
+          uv venv /tmp/stim-wheels
+          uv pip install --python /tmp/stim-wheels/bin/python --no-deps dist/*.whl
+          /tmp/stim-wheels/bin/python -c "import stim_systemone, stim_ai, stim_serve"

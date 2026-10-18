@@ -17,12 +17,14 @@ DISTRIBUTIONS = (
     ("stim-serve", "stim_serve"),
 )
 
+TRAINING_AND_EVALUATION_DEPS = frozenset({"accelerate", "datasets", "scipy"})
+
 
 class VersionedModule(Protocol):
     __version__: str
 
 
-def core_requirements(distribution: str) -> dict[str, Requirement]:
+def non_extra_requirements(distribution: str) -> dict[str, Requirement]:
     declared = importlib.metadata.requires(distribution) or []
     return {
         canonicalize_name(requirement.name): requirement
@@ -38,26 +40,28 @@ def test_distribution_and_import_name_agree(distribution: str, module: str) -> N
 
 
 def test_protocol_layer_stays_free_of_model_and_server_dependencies() -> None:
-    assert set(core_requirements("stim-systemone")) == {"pydantic"}
+    assert set(non_extra_requirements("stim-systemone")) == {"pydantic"}
 
 
 def test_shared_core_depends_on_protocol_layer() -> None:
-    core = core_requirements("stim-ai")
+    core = non_extra_requirements("stim-ai")
     assert "stim-systemone" in core
     assert core["stim-systemone"].extras == set()
-    assert "torch" in core
+    for dependency in ("torch", "peft"):
+        assert dependency in core
+        assert core[dependency].marker is not None
 
 
 def test_shared_core_keeps_training_and_evaluation_optional() -> None:
-    core = set(core_requirements("stim-ai"))
-    assert {"accelerate", "datasets", "scipy"}.isdisjoint(core)
+    core = set(non_extra_requirements("stim-ai"))
+    assert TRAINING_AND_EVALUATION_DEPS.isdisjoint(core)
 
     extras = set(importlib.metadata.metadata("stim-ai").get_all("Provides-Extra") or ())
     assert {"train", "eval"} <= extras
 
 
 def test_service_layer_depends_on_both_lower_layers() -> None:
-    core = core_requirements("stim-serve")
+    core = non_extra_requirements("stim-serve")
     assert "stim-systemone" in core
     assert "stim-ai" in core
     assert core["stim-ai"].extras == set()
@@ -65,8 +69,8 @@ def test_service_layer_depends_on_both_lower_layers() -> None:
 
 
 def test_serve_install_does_not_pull_training_or_evaluation_extras() -> None:
-    core = set(core_requirements("stim-serve"))
-    assert {"accelerate", "datasets", "scipy"}.isdisjoint(core)
+    core = set(non_extra_requirements("stim-serve"))
+    assert TRAINING_AND_EVALUATION_DEPS.isdisjoint(core)
 
 
 def test_typesafe_sdk_is_pinned_to_the_compatibility_baseline() -> None:
@@ -84,7 +88,7 @@ def test_typesafe_sdk_is_pinned_to_the_compatibility_baseline() -> None:
         "import sys, stim_ai; assert 'torch' not in sys.modules",
     ],
 )
-def test_light_modules_do_not_import_heavy_dependencies(code: str) -> None:
+def test_package_imports_do_not_load_heavy_dependencies(code: str) -> None:
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
@@ -101,4 +105,4 @@ def test_license_and_notice_credit_the_required_sources() -> None:
 
 def test_no_kev_runtime_dependency() -> None:
     for distribution, _ in DISTRIBUTIONS:
-        assert "kev" not in core_requirements(distribution)
+        assert "kev" not in non_extra_requirements(distribution)

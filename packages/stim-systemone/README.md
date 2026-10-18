@@ -6,3 +6,5 @@ derived quantities, error mapping, middleware, and the ASGI router.
 This distribution depends only on `pydantic` and the Python standard library. It must
 not depend on torch, transformers, FastAPI, or uvicorn; the service layer integrates it
 with those libraries.
+
+The `stim-systemone` console entry point reports the installed protocol-layer version.

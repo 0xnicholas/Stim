@@ -2,7 +2,7 @@
 
 Stim is an open family of small decision models that speaks TypeSafe's System One
 protocol, with its weights, corpus, recipe, and evaluation published together as one
-record.
+reproducible record.
 
 This repository currently contains the service-foundation scaffold: three Python
 distributions with a strict one-way dependency direction.
@@ -31,10 +31,12 @@ uv run ruff format --check .
 uv run mypy
 ```
 
-The compatibility suite is pinned to the official `typesafe-sdk==0.7.5`; the SDK is a
-development dependency, not a runtime dependency of any distribution.
+The compatibility suite's SDK baseline is pinned to the official `typesafe-sdk==0.7.5`;
+the SDK is a development dependency, not a runtime dependency of any distribution.
 
 ## Build
+
+The workspace root is virtual, so the supported build command builds every member:
 
 ```sh
 uv build --all-packages
