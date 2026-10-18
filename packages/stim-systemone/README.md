@@ -56,10 +56,32 @@ token count; every wire concern stays in this package.
 - `state` is limited to `max_state` tokens (default 8192; the future CLI flag will be
   `--max-state`). An overlong state returns `400 max_tokens_exceeded` with the actual and
   maximum token counts.
-- Error bodies are always `{"detail": "...", "code": "..."}` and never include
-  `latency_ms`. Invalid requests return `422 invalid_request`, with `detail` naming the
-  offending field. Image and media `assets` are rejected with `415
-  unsupported_media_type`; this slice is text-only.
+- When `max_context` is configured (the backbone window), the rendered state plus any
+  single question branch is limited to that many tokens. Exceeding either limit returns
+  `400 max_tokens_exceeded`, again with the actual and maximum counts.
+- Request bodies are limited to 32 MiB. A `Content-Length` over the limit is refused
+  before the body is read; a body without `Content-Length` is counted as it streams in.
+- Only `application/json` (or a `+json` media type) with no content encoding or
+  `Content-Encoding: identity` is accepted. Multipart bodies, any `assets` field, and
+  other content types return `415 unsupported_media_type`; other encodings return `415
+  unsupported_content_encoding`.
+- `permute` and `separate` are not registered under `/v1/systemone`; both return 404.
+- Error bodies are always `{"detail": "...", "code": "..."}`, carry a request id, and
+  never include `latency_ms` or caller content (state, instructions, or criteria).
+  Invalid requests return `422 invalid_request`, with `detail` naming the offending
+  field.
+
+| Status | `code` | Trigger |
+| --- | --- | --- |
+| 400 | `max_tokens_exceeded` | state or one state-plus-question row over the limit |
+| 404 | `not_found` | unknown path, including unregistered extension routes |
+| 404 | `model_not_found` | unknown model name |
+| 405 | `method_not_allowed` | any method other than `POST` on `/v1/systemone` |
+| 413 | `payload_too_large` | body over 32 MiB |
+| 415 | `unsupported_media_type` | non-JSON content type, multipart, or `assets` |
+| 415 | `unsupported_content_encoding` | content encoding other than identity |
+| 422 | `invalid_request` | schema, field, question type, or count errors |
+| 500 | `internal_error` | unexpected failure; no internal detail is returned |
 
 `StubDecisionEngine` is a deterministic engine used by the protocol tests; it implements
 the same contract as a model-backed engine and never handles HTTP or wire types.

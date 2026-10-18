@@ -44,6 +44,8 @@ REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._~-]{1,128}")
 SYSTEM_ONE_PATH = "/v1/systemone"
 DEFAULT_MAX_STATE = 8192
 DEFAULT_MODEL_ALIASES = (DEFAULT_MODEL, "jev-latest")
+MAX_BODY_BYTES = 32 * 1024 * 1024
+JSON_MEDIA_TYPE = "application/json"
 
 
 class ProtocolError(Exception):
@@ -81,12 +83,16 @@ class SystemOneApp:
         engine: DecisionEngine,
         *,
         max_state: int = DEFAULT_MAX_STATE,
+        max_context: int | None = None,
         model_aliases: Collection[str] = DEFAULT_MODEL_ALIASES,
     ) -> None:
         if max_state < 1:
             raise ValueError("max_state must be positive")
+        if max_context is not None and max_context < 1:
+            raise ValueError("max_context must be positive")
         self._engine = engine
         self._max_state = max_state
+        self._max_context = max_context
         self._model_aliases = frozenset(model_aliases)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -111,8 +117,12 @@ class SystemOneApp:
                 headers=error.headers,
             )
             return
-        except Exception:
-            LOGGER.exception("Unhandled error while answering a System One request")
+        except Exception as error:
+            LOGGER.error(
+                "Unhandled error while answering a System One request (request id %s): %s",
+                request_id,
+                type(error).__name__,
+            )
             await self._send_json(
                 send,
                 500,
@@ -135,6 +145,7 @@ class SystemOneApp:
                 "method: only POST is allowed",
                 headers={"Allow": "POST"},
             )
+        _check_transport_headers(scope.get("headers", []))
 
         data = _decode_json(await _read_body(receive))
         request, questions = _parse_request(data)
@@ -152,6 +163,7 @@ class SystemOneApp:
         engine_questions = tuple(
             _engine_question(name, question) for name, question in questions.items()
         )
+        self._check_model_window(state_text, engine_questions)
         score_legends = {
             name: _score_legend(question)
             for name, question in questions.items()
@@ -174,6 +186,23 @@ class SystemOneApp:
         if requested == member_name or requested in self._model_aliases:
             return member_name
         raise ProtocolError(404, "model_not_found", f"model: unknown model {requested!r}")
+
+    def _check_model_window(self, state_text: str, questions: Sequence[Question]) -> None:
+        """Refuse a row whose state plus one question branch exceeds the model window."""
+        if self._max_context is None:
+            return
+        for question in questions:
+            row_text = "\n".join(
+                (state_text, question.instructions, *(option.text for option in question.options))
+            )
+            row_tokens = self._engine.count_tokens(row_text)
+            if row_tokens > self._max_context:
+                raise ProtocolError(
+                    400,
+                    "max_tokens_exceeded",
+                    f"questions.{question.name}: state plus question totals {row_tokens} tokens, "
+                    f"exceeding the maximum of {self._max_context} tokens",
+                )
 
     async def _send_json(
         self,
@@ -208,7 +237,7 @@ class SystemOneApp:
 def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionModel]]:
     if not isinstance(data, dict):
         _invalid("body: request body must be a JSON object")
-    if data.get("assets") is not None:
+    if "assets" in data:
         raise ProtocolError(
             415,
             "unsupported_media_type",
@@ -295,9 +324,7 @@ def _engine_question(name: str, question: QuestionModel) -> Question:
 
 
 def _score_legend(question: ScoreQuestion) -> dict[str, str]:
-    return {
-        str(index): render_content(level) for index, level in enumerate(question.criteria)
-    }
+    return {str(index): render_content(level) for index, level in enumerate(question.criteria)}
 
 
 def _answers(
@@ -342,9 +369,7 @@ def _answers(
 
 def _score(probabilities: Sequence[float]) -> float:
     """The probability-weighted mean of the reported level probabilities."""
-    weighted = math.fsum(
-        level * probability for level, probability in enumerate(probabilities)
-    )
+    weighted = math.fsum(level * probability for level, probability in enumerate(probabilities))
     return round(weighted, 4)
 
 
@@ -353,12 +378,9 @@ def _score_confidence(probabilities: Sequence[float]) -> float:
     count = len(probabilities)
     mode = max(range(count), key=probabilities.__getitem__)
     spread = math.fsum(
-        probability * abs(level - mode)
-        for level, probability in enumerate(probabilities)
+        probability * abs(level - mode) for level, probability in enumerate(probabilities)
     )
-    uniform_spread = math.fsum(
-        abs(level - (count - 1) / 2) for level in range(count)
-    ) / count
+    uniform_spread = math.fsum(abs(level - (count - 1) / 2) for level in range(count)) / count
     return round(max(0.0, 1 - spread / uniform_spread), 4)
 
 
@@ -380,6 +402,64 @@ def _normalized(scores: Sequence[float]) -> list[float]:
     return [score / total for score in scores]
 
 
+def _check_transport_headers(headers: Iterable[tuple[bytes, bytes]]) -> None:
+    declared = _content_length(headers)
+    if declared is not None and declared > MAX_BODY_BYTES:
+        raise ProtocolError(
+            413,
+            "payload_too_large",
+            f"body: Content-Length {declared} exceeds the maximum of {MAX_BODY_BYTES} bytes",
+        )
+
+    encodings = [
+        token.strip().lower()
+        for value in _header_values(headers, b"content-encoding")
+        for token in value.split(",")
+    ]
+    if any(encoding not in ("", "identity") for encoding in encodings):
+        raise ProtocolError(
+            415,
+            "unsupported_content_encoding",
+            "content-encoding: only identity is supported",
+        )
+
+    content_type = _media_type(_header(headers, b"content-type"))
+    if content_type != JSON_MEDIA_TYPE and not content_type.endswith("+json"):
+        raise ProtocolError(
+            415,
+            "unsupported_media_type",
+            f"content-type: {content_type or 'missing'} is not supported; send application/json",
+        )
+
+
+def _header(headers: Iterable[tuple[bytes, bytes]], name: bytes) -> str | None:
+    values = _header_values(headers, name)
+    return values[0] if values else None
+
+
+def _header_values(headers: Iterable[tuple[bytes, bytes]], name: bytes) -> list[str]:
+    return [
+        value.decode("latin-1") for header_name, value in headers if header_name.lower() == name
+    ]
+
+
+def _content_length(headers: Iterable[tuple[bytes, bytes]]) -> int | None:
+    value = _header(headers, b"content-length")
+    if value is None:
+        return None
+    try:
+        length = int(value.strip())
+    except ValueError:
+        return None
+    return length if length >= 0 else None
+
+
+def _media_type(content_type: str | None) -> str:
+    if content_type is None:
+        return ""
+    return content_type.partition(";")[0].strip().lower()
+
+
 def _decode_json(body: bytes) -> object:
     try:
         return json.loads(body, parse_constant=_reject_constant)
@@ -393,22 +473,28 @@ def _reject_constant(constant: str) -> object:
 
 async def _read_body(receive: Receive) -> bytes:
     chunks: list[bytes] = []
+    total = 0
     while True:
         message = await receive()
         if message["type"] == "http.disconnect":
             raise _ClientDisconnected
         if message["type"] != "http.request":
             continue
-        chunks.append(message.get("body", b""))
+        chunk = message.get("body", b"")
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            raise ProtocolError(
+                413,
+                "payload_too_large",
+                f"body: request body exceeds the maximum of {MAX_BODY_BYTES} bytes",
+            )
+        chunks.append(chunk)
         if not message.get("more_body", False):
             return b"".join(chunks)
 
 
 def _request_id(headers: Iterable[tuple[bytes, bytes]]) -> str:
-    for name, value in headers:
-        if name.lower() == REQUEST_ID_HEADER:
-            candidate = value.decode("latin-1")
-            if REQUEST_ID_PATTERN.fullmatch(candidate):
-                return candidate
-            break
+    values = _header_values(headers, REQUEST_ID_HEADER)
+    if values and REQUEST_ID_PATTERN.fullmatch(values[0]):
+        return values[0]
     return uuid4().hex

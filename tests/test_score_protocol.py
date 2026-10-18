@@ -199,17 +199,13 @@ def test_score_legend_probabilities_score_and_confidence_are_self_consistent(
     assert list(probabilities) == [str(index) for index in range(len(criteria))]
     assert all(probability == round(probability, 4) for probability in probabilities.values())
     assert sum(probabilities.values()) == pytest.approx(1.0, abs=0.02)
-    assert answer["legend"] == {
-        str(index): level for index, level in enumerate(criteria)
-    }
+    assert answer["legend"] == {str(index): level for index, level in enumerate(criteria)}
     assert answer["score"] == expected_score(probabilities)
     assert answer["confidence"] == expected_confidence(probabilities)
     assert answer["score"] == pytest.approx(
         sum(
             index * probability
-            for index, probability in enumerate(
-                score / sum(scores) for score in scores
-            )
+            for index, probability in enumerate(score / sum(scores) for score in scores)
         ),
         abs=5e-3,
     )
@@ -217,9 +213,7 @@ def test_score_legend_probabilities_score_and_confidence_are_self_consistent(
 
 
 def test_score_confidence_uses_the_first_maximum_reported_level() -> None:
-    engine = StubDecisionEngine(
-        raw_scores={"q": [0.051758, 0.553999, 0.554085, 0.469260]}
-    )
+    engine = StubDecisionEngine(raw_scores={"q": [0.051758, 0.553999, 0.554085, 0.469260]})
 
     with running_server(create_app(engine)) as address:
         result = post(address, score_payload(["a", "b", "c", "d"], name="q"))
@@ -271,9 +265,7 @@ def test_missing_score_criteria_returns_422_naming_the_field(server: ServerAddre
 
 
 @pytest.mark.parametrize("level_count", [2, 10])
-def test_score_accepts_the_level_count_extremes(
-    server: ServerAddress, level_count: int
-) -> None:
+def test_score_accepts_the_level_count_extremes(server: ServerAddress, level_count: int) -> None:
     criteria = [f"level-{index}" for index in range(level_count)]
 
     result = post(server, score_payload(criteria))
@@ -360,6 +352,3 @@ def test_score_questions_share_a_request_with_noul_and_choice() -> None:
     assert score_answer["score"] == 0.9999
     assert score_answer["probabilities"] == {"0": 0.3333, "1": 0.3333, "2": 0.3333}
     assert score_answer["confidence"] == 0.0
-
-
-

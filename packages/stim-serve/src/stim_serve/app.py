@@ -15,6 +15,7 @@ def create_app(
     engine: DecisionEngine | None = None,
     *,
     max_state: int = DEFAULT_MAX_STATE,
+    max_context: int | None = None,
     model_aliases: Collection[str] = DEFAULT_MODEL_ALIASES,
 ) -> FastAPI:
     """Build the service app around a decision engine.
@@ -36,6 +37,7 @@ def create_app(
         SystemOneApp(
             engine if engine is not None else StubDecisionEngine(),
             max_state=max_state,
+            max_context=max_context,
             model_aliases=model_aliases,
         ),
     )

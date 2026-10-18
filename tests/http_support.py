@@ -65,6 +65,7 @@ def request(
     payload: object | bytes | None = None,
     *,
     headers: dict[str, str] | None = None,
+    content_type: str | None = "application/json",
 ) -> HttpResult:
     if payload is None:
         body = None
@@ -74,7 +75,9 @@ def request(
         body = json.dumps(payload).encode()
     connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
     try:
-        request_headers = {"Content-Type": "application/json", **(headers or {})}
+        request_headers = dict(headers or {})
+        if content_type is not None:
+            request_headers.setdefault("Content-Type", content_type)
         connection.request(method, path, body=body, headers=request_headers)
         response = connection.getresponse()
         text = response.read().decode()
@@ -90,5 +93,39 @@ def post(
     payload: object | bytes,
     *,
     headers: dict[str, str] | None = None,
+    content_type: str | None = "application/json",
 ) -> HttpResult:
-    return request(server, "POST", "/v1/systemone", payload, headers=headers)
+    return request(
+        server,
+        "POST",
+        "/v1/systemone",
+        payload,
+        headers=headers,
+        content_type=content_type,
+    )
+
+
+def read_raw_response(sock: socket.socket) -> HttpResult:
+    """Read one HTTP response from a socket, for requests built by hand."""
+    received = b""
+    while b"\r\n\r\n" not in received:
+        chunk = sock.recv(65536)
+        if not chunk:
+            raise RuntimeError("connection closed before the response headers")
+        received += chunk
+    head, _, body = received.partition(b"\r\n\r\n")
+    status_line, *header_lines = head.split(b"\r\n")
+    status = int(status_line.split(b" ", 2)[1])
+    response_headers: dict[str, str] = {}
+    for line in header_lines:
+        name, _, value = line.partition(b":")
+        response_headers[name.decode("latin-1").lower()] = value.strip().decode("latin-1")
+    expected = int(response_headers.get("content-length", "0"))
+    while len(body) < expected:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        body += chunk
+    text = body[:expected].decode()
+    parsed = cast(dict[str, Any], json.loads(text)) if text else {}
+    return HttpResult(status, parsed, response_headers, text)
