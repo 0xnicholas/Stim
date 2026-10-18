@@ -11,7 +11,7 @@ The `stim-systemone` console entry point reports the installed protocol-layer ve
 
 ## Implemented surface
 
-The current vertical slice serves `POST /v1/systemone` for `noul` and `choice`
+The current vertical slice serves `POST /v1/systemone` for `noul`, `choice`, and `score`
 questions through `SystemOneApp`, a pure ASGI application. A `DecisionEngine` receives
 the rendered state and normalized questions and returns raw option scores plus an input
 token count; every wire concern stays in this package.
@@ -32,6 +32,17 @@ token count; every wire concern stays in this package.
   reported probabilities. `confidence` is `(p_max − 1/K) / (1 − 1/K)`, measured on the
   normalized distribution before probability rounding and then rounded to four decimal
   places; the single-option answer is pinned to probability 1.0 and confidence 1.0.
+- Score `criteria` is a required, ordered array of 2–10 level descriptions. Criteria
+  order is preserved and each level renders through `render_option` under its index key,
+  as `0: <description>`, `1: <description>`, and so on.
+- A score answer is exactly `{"type": "score", "score": ..., "legend": {...},
+  "probabilities": {...}, "confidence": ...}`. Probabilities are keyed by the level index
+  as a string, in criteria order, and rounded to four decimal places after
+  normalization. `legend` maps each index key to its rendered level text. `score` is the
+  probability-weighted mean `Σ i·pᵢ` over the reported probabilities, so it may fall
+  between two levels. `confidence` is `max(0, 1 − Σ pᵢ|i − mode| / D)` with
+  `D = (1/L)Σ|i − (L−1)/2|` and `mode` the first highest reported probability, both
+  measured on the reported probabilities and rounded to four decimal places.
 - Option scores are normalized before being rounded to four decimal places. A zero sum
   falls back to a uniform distribution.
 - Every response, including errors, carries a non-empty `x-typesafe-request-id`. A
@@ -56,8 +67,8 @@ the same contract as a model-backed engine and never handles HTTP or wire types.
 ## Content rendering
 
 `stim_systemone.rendering` is the single renderer for every piece of caller content:
-state, instructions, noul criteria, choice option names and descriptions, and (once the
-score question type lands) score level texts. It renders JSON values as plain text
+state, instructions, noul criteria, choice option names and descriptions, and score
+level texts. It renders JSON values as plain text
 without JSON punctuation, preserves object key order, and rewrites `<|name|>`
 special-token literals to `<¦name¦>` so caller text cannot forge a structural delimiter.
 The rendered form is frozen with the artifact and is shared by training, evaluation, and

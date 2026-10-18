@@ -28,6 +28,7 @@ from stim_systemone.wire import (
     ChoiceQuestion,
     NoulQuestion,
     QuestionModel,
+    ScoreQuestion,
     SystemOneRequest,
 )
 
@@ -151,8 +152,13 @@ class SystemOneApp:
         engine_questions = tuple(
             _engine_question(name, question) for name, question in questions.items()
         )
+        score_legends = {
+            name: _score_legend(question)
+            for name, question in questions.items()
+            if isinstance(question, ScoreQuestion)
+        }
         decision = self._engine.decide(state_text, engine_questions)
-        answers = _answers(engine_questions, decision.probabilities)
+        answers = _answers(engine_questions, decision.probabilities, score_legends)
         serialized_answers = json.dumps(answers, ensure_ascii=False, separators=(",", ":"))
         return {
             "model": member_name,
@@ -225,9 +231,11 @@ def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionMo
         if not isinstance(question_type, str) or not question_type:
             _invalid(f"questions.{name}.type: question type must be a non-empty string")
         if question_type == "noul":
-            model: type[NoulQuestion] | type[ChoiceQuestion] = NoulQuestion
+            model: type[NoulQuestion] | type[ChoiceQuestion] | type[ScoreQuestion] = NoulQuestion
         elif question_type == "choice":
             model = ChoiceQuestion
+        elif question_type == "score":
+            model = ScoreQuestion
         else:
             _invalid(f"questions.{name}.type: unsupported question type {question_type!r}")
         try:
@@ -264,6 +272,16 @@ def _engine_question(name: str, question: QuestionModel) -> Question:
                 for option_name, description in question.criteria.items()
             ),
         )
+    if isinstance(question, ScoreQuestion):
+        return Question(
+            name=name,
+            type="score",
+            instructions=render_content(question.instructions),
+            options=tuple(
+                Option(key=str(index), text=render_option(str(index), level))
+                for index, level in enumerate(question.criteria)
+            ),
+        )
     criteria = question.criteria
     return Question(
         name=name,
@@ -276,8 +294,16 @@ def _engine_question(name: str, question: QuestionModel) -> Question:
     )
 
 
+def _score_legend(question: ScoreQuestion) -> dict[str, str]:
+    return {
+        str(index): render_content(level) for index, level in enumerate(question.criteria)
+    }
+
+
 def _answers(
-    questions: Sequence[Question], rows: Sequence[Sequence[float]]
+    questions: Sequence[Question],
+    rows: Sequence[Sequence[float]],
+    score_legends: Mapping[str, Mapping[str, str]],
 ) -> dict[str, dict[str, Any]]:
     if len(rows) != len(questions):
         raise ValueError("engine returned a different number of answers than questions")
@@ -290,10 +316,10 @@ def _answers(
             )
         normalized = _normalized(scores)
         probabilities = [round(probability, 4) for probability in normalized]
+        keys = [option.key for option in question.options]
         if question.type == "noul" and len(question.options) == 2:
             answers[question.name] = {"type": "noul", "noul": probabilities[1]}
         elif question.type == "choice":
-            keys = [option.key for option in question.options]
             choice_index = max(range(len(probabilities)), key=probabilities.__getitem__)
             answers[question.name] = {
                 "type": "choice",
@@ -301,9 +327,39 @@ def _answers(
                 "probabilities": dict(zip(keys, probabilities, strict=True)),
                 "confidence": _choice_confidence(normalized[choice_index], len(normalized)),
             }
+        elif question.type == "score":
+            answers[question.name] = {
+                "type": "score",
+                "score": _score(probabilities),
+                "legend": score_legends[question.name],
+                "probabilities": dict(zip(keys, probabilities, strict=True)),
+                "confidence": _score_confidence(probabilities),
+            }
         else:
             raise ValueError(f"unsupported engine question {question.name!r}")
     return answers
+
+
+def _score(probabilities: Sequence[float]) -> float:
+    """The probability-weighted mean of the reported level probabilities."""
+    weighted = math.fsum(
+        level * probability for level, probability in enumerate(probabilities)
+    )
+    return round(weighted, 4)
+
+
+def _score_confidence(probabilities: Sequence[float]) -> float:
+    """Confidence relative to the uniform distribution's spread about its centre."""
+    count = len(probabilities)
+    mode = max(range(count), key=probabilities.__getitem__)
+    spread = math.fsum(
+        probability * abs(level - mode)
+        for level, probability in enumerate(probabilities)
+    )
+    uniform_spread = math.fsum(
+        abs(level - (count - 1) / 2) for level in range(count)
+    ) / count
+    return round(max(0.0, 1 - spread / uniform_spread), 4)
 
 
 def _choice_confidence(p_max: float, count: int) -> float:

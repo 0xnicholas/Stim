@@ -52,7 +52,7 @@ An option is rendered by `render_option(key, description)`:
 
 `noul` uses this for the `false` and `true` descriptions under the keys `no` and `yes`.
 `choice` uses it for every option name and its description, in request order. `score`
-reuses it for level texts when that question type is added.
+uses it for each level under its index key, in criteria order.
 
 ### Delimiter safety
 

@@ -41,7 +41,17 @@ class ChoiceQuestion(BaseModel):
     criteria: dict[str, JsonValue] = Field(min_length=1, max_length=255)
 
 
-QuestionModel = NoulQuestion | ChoiceQuestion
+class ScoreQuestion(BaseModel):
+    """A score question over an ordered list of 2-10 level descriptions."""
+
+    model_config = STRICT_WIRE_MODEL
+
+    type: Literal["score"]
+    instructions: JsonValue = None
+    criteria: list[JsonValue] = Field(min_length=2, max_length=10)
+
+
+QuestionModel = NoulQuestion | ChoiceQuestion | ScoreQuestion
 
 
 class SystemOneRequest(BaseModel):

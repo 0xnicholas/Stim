@@ -10,6 +10,7 @@ from stim_systemone.wire import (
     ChoiceQuestion,
     NoulCriteria,
     NoulQuestion,
+    ScoreQuestion,
     SystemOneRequest,
 )
 
@@ -26,6 +27,7 @@ __all__ = [
     "NoulQuestion",
     "Option",
     "Question",
+    "ScoreQuestion",
     "StubDecisionEngine",
     "SystemOneApp",
     "SystemOneRequest",
