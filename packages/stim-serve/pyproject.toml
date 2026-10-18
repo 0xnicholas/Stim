@@ -1,0 +1,31 @@
+[project]
+name = "stim-serve"
+version = "0.1.0"
+description = "FastAPI service and CLI for serving Stim decision models."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "stim-systemone",
+    "stim-ai",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.scripts]
+stim-serve = "stim_serve.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+stim-systemone = { workspace = true }
+stim-ai = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stim_serve"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
+"../../NOTICE" = "NOTICE"

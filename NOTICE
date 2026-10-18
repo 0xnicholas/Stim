@@ -1,0 +1,16 @@
+NOTICE
+
+Stim
+Copyright 2026 The Stim Authors
+
+This product includes software developed as part of the Stim project.
+
+Model base
+Stim decision models are built on the Qwen family of foundation models (Qwen3.5),
+developed by Alibaba Group and its affiliates. Qwen model weights and code are
+distributed under their own licence terms; see the upstream release for details.
+
+Design reference
+Stim's design references the Kev project (jaredpalmer/kev), an Apache-2.0 open
+implementation of a Jev-style decision model family. No Kev source code, corpus, or
+runtime dependency is included in this repository.

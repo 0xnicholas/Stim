@@ -1,0 +1,40 @@
+[project]
+name = "stim-ai"
+version = "0.1.0"
+description = "Shared model, artifact loading, and command-line core for Stim."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "stim-systemone",
+    "torch>=2.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "transformers>=4.46",
+    "peft>=0.13; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
+
+[project.optional-dependencies]
+train = [
+    "accelerate>=1.0",
+    "datasets>=3.0",
+]
+eval = [
+    "numpy>=1.26",
+    "scipy>=1.13",
+]
+
+[project.scripts]
+stim = "stim_ai.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+stim-systemone = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stim_ai"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
+"../../NOTICE" = "NOTICE"
