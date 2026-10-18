@@ -51,7 +51,8 @@ An option is rendered by `render_option(key, description)`:
   indented two spaces.
 
 `noul` uses this for the `false` and `true` descriptions under the keys `no` and `yes`.
-`choice` and `score` reuse `render_content` and `render_option` when they are added.
+`choice` uses it for every option name and its description, in request order. `score`
+reuses it for level texts when that question type is added.
 
 ### Delimiter safety
 

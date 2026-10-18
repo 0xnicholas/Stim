@@ -12,4 +12,4 @@ builds the FastAPI application around a `DecisionEngine`. The protocol layer's A
 application is mounted at the root, so the service behaves the same whether it is run
 through FastAPI or bare ASGI. FastAPI's generated documentation routes are disabled so
 that every response comes from the protocol layer. With no engine supplied, the
-deterministic `StubDecisionEngine` answers noul questions.
+deterministic `StubDecisionEngine` answers noul and choice questions.

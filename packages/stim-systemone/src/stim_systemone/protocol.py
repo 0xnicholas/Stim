@@ -23,7 +23,13 @@ from pydantic import ValidationError
 
 from stim_systemone.engine import DecisionEngine, Option, Question
 from stim_systemone.rendering import render_content, render_option
-from stim_systemone.wire import DEFAULT_MODEL, NoulQuestion, SystemOneRequest
+from stim_systemone.wire import (
+    DEFAULT_MODEL,
+    ChoiceQuestion,
+    NoulQuestion,
+    QuestionModel,
+    SystemOneRequest,
+)
 
 LOGGER = logging.getLogger("stim_systemone")
 
@@ -193,7 +199,7 @@ class SystemOneApp:
                 return
 
 
-def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, NoulQuestion]]:
+def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionModel]]:
     if not isinstance(data, dict):
         _invalid("body: request body must be a JSON object")
     if data.get("assets") is not None:
@@ -207,7 +213,7 @@ def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, NoulQuesti
     except ValidationError as error:
         _invalid(_format_validation_error(error))
 
-    questions: dict[str, NoulQuestion] = {}
+    questions: dict[str, QuestionModel] = {}
     for name, raw in request.questions.items():
         if not name:
             _invalid("questions: question ids must be non-empty strings")
@@ -218,12 +224,21 @@ def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, NoulQuesti
         question_type = raw["type"]
         if not isinstance(question_type, str) or not question_type:
             _invalid(f"questions.{name}.type: question type must be a non-empty string")
-        if question_type != "noul":
+        if question_type == "noul":
+            model: type[NoulQuestion] | type[ChoiceQuestion] = NoulQuestion
+        elif question_type == "choice":
+            model = ChoiceQuestion
+        else:
             _invalid(f"questions.{name}.type: unsupported question type {question_type!r}")
         try:
-            questions[name] = NoulQuestion.model_validate(raw)
+            question = model.model_validate(raw)
         except ValidationError as error:
             _invalid(_format_validation_error(error, f"questions.{name}"))
+        if isinstance(question, ChoiceQuestion):
+            for option_name in question.criteria:
+                if not option_name:
+                    _invalid(f"questions.{name}.criteria: option names must be non-empty strings")
+        questions[name] = question
     return request, questions
 
 
@@ -238,7 +253,17 @@ def _format_validation_error(error: ValidationError, prefix: str = "") -> str:
     return f"{path}: {first['msg']}" if path else str(first["msg"])
 
 
-def _engine_question(name: str, question: NoulQuestion) -> Question:
+def _engine_question(name: str, question: QuestionModel) -> Question:
+    if isinstance(question, ChoiceQuestion):
+        return Question(
+            name=name,
+            type="choice",
+            instructions=render_content(question.instructions),
+            options=tuple(
+                Option(key=option_name, text=render_option(option_name, description))
+                for option_name, description in question.criteria.items()
+            ),
+        )
     criteria = question.criteria
     return Question(
         name=name,
@@ -258,24 +283,45 @@ def _answers(
         raise ValueError("engine returned a different number of answers than questions")
     answers: dict[str, dict[str, Any]] = {}
     for question, scores in zip(questions, rows, strict=True):
-        if question.type != "noul" or len(question.options) != 2:
+        if len(scores) != len(question.options):
+            raise ValueError(
+                f"question {question.name!r} needs one score per option, "
+                f"got {len(scores)} for {len(question.options)} options"
+            )
+        normalized = _normalized(scores)
+        probabilities = [round(probability, 4) for probability in normalized]
+        if question.type == "noul" and len(question.options) == 2:
+            answers[question.name] = {"type": "noul", "noul": probabilities[1]}
+        elif question.type == "choice":
+            keys = [option.key for option in question.options]
+            choice_index = max(range(len(probabilities)), key=probabilities.__getitem__)
+            answers[question.name] = {
+                "type": "choice",
+                "choice": keys[choice_index],
+                "probabilities": dict(zip(keys, probabilities, strict=True)),
+                "confidence": _choice_confidence(normalized[choice_index], len(normalized)),
+            }
+        else:
             raise ValueError(f"unsupported engine question {question.name!r}")
-        if len(scores) != 2:
-            raise ValueError("a noul answer needs one score per option")
-        probabilities = _normalize(scores)
-        answers[question.name] = {"type": "noul", "noul": probabilities[1]}
     return answers
 
 
-def _normalize(scores: Sequence[float]) -> list[float]:
+def _choice_confidence(p_max: float, count: int) -> float:
+    if count == 1:
+        return 1.0
+    confidence = (p_max - 1 / count) / (1 - 1 / count)
+    return round(max(0.0, confidence), 4)
+
+
+def _normalized(scores: Sequence[float]) -> list[float]:
     if not scores:
         raise ValueError("engine returned no option scores")
     if any(not math.isfinite(score) or score < 0 for score in scores):
         raise ValueError("engine option scores must be finite and non-negative")
     total = math.fsum(scores)
     if total == 0:
-        return [round(1 / len(scores), 4) for _ in scores]
-    return [round(score / total, 4) for score in scores]
+        return [1 / len(scores) for _ in scores]
+    return [score / total for score in scores]
 
 
 def _decode_json(body: bytes) -> object:

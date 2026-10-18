@@ -11,16 +11,27 @@ The `stim-systemone` console entry point reports the installed protocol-layer ve
 
 ## Implemented surface
 
-The current vertical slice serves `POST /v1/systemone` for `noul` questions through
-`SystemOneApp`, a pure ASGI application. A `DecisionEngine` receives the rendered state
-and normalized questions and returns raw option scores plus an input token count; every
-wire concern stays in this package.
+The current vertical slice serves `POST /v1/systemone` for `noul` and `choice`
+questions through `SystemOneApp`, a pure ASGI application. A `DecisionEngine` receives
+the rendered state and normalized questions and returns raw option scores plus an input
+token count; every wire concern stays in this package.
 
 - A noul answer is exactly `{"type": "noul", "noul": p}`, where `p` is the probability
   of yes. It never carries `confidence`.
 - Noul maps to the options `no` and `yes`. Optional `criteria.true` and `criteria.false`
   descriptions render into the option text as `yes: <description>` and
   `no: <description>`.
+- Choice `criteria` is a required, non-empty object of 1–255 option names to optional
+  descriptions. Request order is preserved, and names must be non-empty. A null or empty
+  description falls back to the bare name; any other description renders through
+  `render_option`, as `name: <description>` on one line or with a multi-line
+  description indented under `name:`.
+- A choice answer is exactly `{"type": "choice", "choice": ..., "probabilities": {...},
+  "confidence": ...}`. Probabilities are keyed by option name in request order and
+  rounded to four decimal places after normalization. `choice` is the argmax of the
+  reported probabilities. `confidence` is `(p_max − 1/K) / (1 − 1/K)`, measured on the
+  normalized distribution before probability rounding and then rounded to four decimal
+  places; the single-option answer is pinned to probability 1.0 and confidence 1.0.
 - Option scores are normalized before being rounded to four decimal places. A zero sum
   falls back to a uniform distribution.
 - Every response, including errors, carries a non-empty `x-typesafe-request-id`. A
@@ -45,11 +56,12 @@ the same contract as a model-backed engine and never handles HTTP or wire types.
 ## Content rendering
 
 `stim_systemone.rendering` is the single renderer for every piece of caller content:
-state, instructions, noul criteria, and (once those question types land) choice option
-descriptions and score level texts. It renders JSON values as plain text without JSON
-punctuation, preserves object key order, and rewrites `<|name|>` special-token literals
-to `<¦name¦>` so caller text cannot forge a structural delimiter. The rendered form is
-frozen with the artifact and is shared by training, evaluation, and serving.
+state, instructions, noul criteria, choice option names and descriptions, and (once the
+score question type lands) score level texts. It renders JSON values as plain text
+without JSON punctuation, preserves object key order, and rewrites `<|name|>`
+special-token literals to `<¦name¦>` so caller text cannot forge a structural delimiter.
+The rendered form is frozen with the artifact and is shared by training, evaluation, and
+serving.
 
 The exact rules and examples are in
 [the artifact contract](../../docs/artifact-contract.md).

@@ -22,13 +22,26 @@ class NoulCriteria(BaseModel):
 
 
 class NoulQuestion(BaseModel):
-    """A yes/no question, the only question type implemented in this slice."""
+    """A yes/no question."""
 
     model_config = STRICT_WIRE_MODEL
 
     type: Literal["noul"]
     instructions: JsonValue = None
     criteria: NoulCriteria | None = None
+
+
+class ChoiceQuestion(BaseModel):
+    """A single selection from a non-empty, ordered map of 1-255 options."""
+
+    model_config = STRICT_WIRE_MODEL
+
+    type: Literal["choice"]
+    instructions: JsonValue = None
+    criteria: dict[str, JsonValue] = Field(min_length=1, max_length=255)
+
+
+QuestionModel = NoulQuestion | ChoiceQuestion
 
 
 class SystemOneRequest(BaseModel):

@@ -13,9 +13,9 @@ _WORD = re.compile(r"\S+")
 class StubDecisionEngine:
     """Return fixed per-question scores so protocol behavior stays reproducible.
 
-    ``raw_scores`` maps a question name to unnormalized option scores in wire order
-    (no, yes). Questions absent from the mapping score ``(1 - yes_probability,
-    yes_probability)``.
+    ``raw_scores`` maps a question name to unnormalized option scores in wire order.
+    Questions absent from the mapping score noul questions as ``(1 - yes_probability,
+    yes_probability)`` and every other question uniformly.
     """
 
     def __init__(
@@ -40,15 +40,18 @@ class StubDecisionEngine:
 
     def decide(self, state_text: str, questions: Sequence[Question]) -> Decision:
         """Score each question with its configured raw scores."""
-        rows = tuple(
-            self._raw_scores.get(
-                question.name, (1.0 - self._yes_probability, self._yes_probability)
-            )
-            for question in questions
-        )
+        rows = tuple(self._scores(question) for question in questions)
         input_tokens = self.count_tokens(state_text) + sum(
             self.count_tokens(question.instructions)
             + sum(self.count_tokens(option.text) for option in question.options)
             for question in questions
         )
         return Decision(probabilities=rows, input_tokens=input_tokens)
+
+    def _scores(self, question: Question) -> tuple[float, ...]:
+        configured = self._raw_scores.get(question.name)
+        if configured is not None:
+            return configured
+        if question.type == "noul":
+            return (1.0 - self._yes_probability, self._yes_probability)
+        return tuple(1.0 for _ in question.options)
