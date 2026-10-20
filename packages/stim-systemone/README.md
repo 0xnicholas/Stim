@@ -17,6 +17,10 @@ questions, plus `GET /v1/models`, through `SystemOneApp`, a pure ASGI applicatio
 option scores plus an input token count; it also exposes the loaded member's name and
 catalog metadata. Every wire concern stays in this package.
 
+`GET /healthz` and `GET /readyz` are operator probes. They return `{"status": "ok"}` with
+a request id, never carry `latency_ms`, and are not authenticated, rate-limited, or
+overload-gated.
+
 - An omitted `model` defaults to `stim-latest`. `stim-latest` and `jev-latest` are
   aliases for the loaded member; every successful `POST /v1/systemone` response reports
   that member's name, never an alias. Any other name returns `404 model_not_found`.
@@ -86,17 +90,39 @@ catalog metadata. Every wire concern stays in this package.
 | Status | `code` | Trigger |
 | --- | --- | --- |
 | 400 | `max_tokens_exceeded` | state or one state-plus-question row over the limit |
+| 401 | `unauthorized` | missing or incorrect Bearer credential while an API key is configured |
 | 404 | `not_found` | unknown path, including unregistered extension routes |
 | 404 | `model_not_found` | unknown model name |
-| 405 | `method_not_allowed` | any method other than `POST` on `/v1/systemone` or `GET` on `/v1/models` |
+| 405 | `method_not_allowed` | any method other than `POST` on `/v1/systemone`, `GET` on `/v1/models`, or `GET` on a probe |
 | 413 | `payload_too_large` | body over 32 MiB |
 | 415 | `unsupported_media_type` | non-JSON content type, multipart, or `assets` |
 | 415 | `unsupported_content_encoding` | content encoding other than identity |
 | 422 | `invalid_request` | schema, field, question type, or count errors |
+| 429 | `rate_limited` | the injected limiter refused the request |
 | 500 | `internal_error` | unexpected failure; no internal detail is returned |
+| 529 | `overloaded` | the overload hook reports draining or over capacity |
 
 `StubDecisionEngine` is a deterministic engine used by the protocol tests; it implements
 the same contract as a model-backed engine and never handles HTTP or wire types.
+
+## Access control, limits, and probes
+
+Authentication is off by default. Passing `api_key` to `SystemOneApp` (or the service's
+`create_app`) makes every `/v1/*` route require `Authorization: Bearer <key>`. The
+credential is compared in constant time against the configured key; a missing, malformed,
+or incorrect credential returns `401 unauthorized` with `WWW-Authenticate: Bearer`. The
+key is never echoed in a response or written to logs. Authentication runs before routing,
+so even an unknown `/v1/*` path answers 401 without a credential. `GET /healthz` and
+`GET /readyz` stay open regardless of the key.
+
+There is no built-in rate-limit policy. An optional `limiter` callable receives the ASGI
+scope and returns the number of seconds to retry after when the request should be refused,
+or `None` to allow it. A refusal returns `429 rate_limited` with `Retry-After` in whole
+seconds (rounded up). An optional `is_overloaded` callable reports whether the service is
+draining or over capacity; while it is true, every `/v1/*` route returns
+`529 overloaded`. Hooks are consulted in the order authentication, overload, limiter, so
+an unauthenticated request never consumes a rate-limit allowance and an overloaded service
+does not consult the limiter. The probes bypass all three hooks.
 
 ## Forward compatibility and question isolation
 

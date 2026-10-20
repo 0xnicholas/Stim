@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import math
@@ -38,11 +40,18 @@ Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
+Limiter = Callable[[Scope], float | None]
+OverloadCheck = Callable[[], bool]
 
 REQUEST_ID_HEADER = b"x-typesafe-request-id"
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._~-]{1,128}")
 SYSTEM_ONE_PATH = "/v1/systemone"
 MODELS_PATH = "/v1/models"
+V1_PREFIX = "/v1"
+HEALTH_PATH = "/healthz"
+READY_PATH = "/readyz"
+AUTHORIZATION_HEADER = b"authorization"
+BEARER_CHALLENGE = "Bearer"
 DEFAULT_MAX_STATE = 8192
 MODEL_ALIASES = frozenset({DEFAULT_MODEL, "jev-latest"})
 LATEST_ALIAS_DESCRIPTION = "Latest released Stim decision member."
@@ -79,11 +88,12 @@ class _ClientDisconnected(Exception):
 
 
 class SystemOneApp:
-    """Serve ``POST /v1/systemone`` as an ASGI application.
+    """Serve the System One HTTP surface as an ASGI application.
 
-    The app owns every wire concern: parsing, rendering, normalization, error mapping,
-    request IDs, usage, and latency. A ``DecisionEngine`` only scores normalized
-    questions and never sees HTTP or pydantic types.
+    The app owns every wire concern: probes, authentication, rate limiting, overload
+    rejection, parsing, rendering, normalization, error mapping, request IDs, usage, and
+    latency. A ``DecisionEngine`` only scores normalized questions and never sees HTTP or
+    pydantic types.
     """
 
     def __init__(
@@ -92,14 +102,24 @@ class SystemOneApp:
         *,
         max_state: int = DEFAULT_MAX_STATE,
         max_context: int | None = None,
+        api_key: str | None = None,
+        limiter: Limiter | None = None,
+        is_overloaded: OverloadCheck | None = None,
     ) -> None:
         if max_state < 1:
             raise ValueError("max_state must be positive")
         if max_context is not None and max_context < 1:
             raise ValueError("max_context must be positive")
+        if api_key == "":
+            raise ValueError("api_key must be non-empty when configured")
         self._engine = engine
         self._max_state = max_state
         self._max_context = max_context
+        self._api_key_digest = (
+            hashlib.sha256(api_key.encode("utf-8")).digest() if api_key is not None else None
+        )
+        self._limiter = limiter
+        self._is_overloaded = is_overloaded
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -111,10 +131,18 @@ class SystemOneApp:
         request_id = _request_id(scope.get("headers", []))
         started = time.perf_counter()
         include_latency = True
+        path = scope.get("path", "")
         try:
-            if scope.get("path") == MODELS_PATH:
+            if _is_v1_path(path):
+                self._authorize(scope)
+                self._check_overload()
+                self._check_rate_limit(scope)
+            if path == MODELS_PATH:
                 include_latency = False
                 payload = self._handle_models(scope)
+            elif path in (HEALTH_PATH, READY_PATH):
+                include_latency = False
+                payload = _handle_probe(scope)
             else:
                 payload = await self._handle(scope, receive)
         except _ClientDisconnected:
@@ -145,6 +173,44 @@ class SystemOneApp:
         if include_latency:
             payload["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
         await self._send_json(send, 200, payload, request_id)
+
+    def _authorize(self, scope: Scope) -> None:
+        """Require the configured Bearer key on every ``/v1/*`` route."""
+        if self._api_key_digest is None:
+            return
+        provided = _bearer_token(scope.get("headers", []))
+        if provided is None or not hmac.compare_digest(
+            hashlib.sha256(provided).digest(), self._api_key_digest
+        ):
+            raise ProtocolError(
+                401,
+                "unauthorized",
+                "authorization: missing or invalid Bearer token",
+                headers={"WWW-Authenticate": BEARER_CHALLENGE},
+            )
+
+    def _check_overload(self) -> None:
+        """Refuse new work while the service is draining or over capacity."""
+        if self._is_overloaded is not None and self._is_overloaded():
+            raise ProtocolError(
+                529,
+                "overloaded",
+                "server: not accepting requests; retry later",
+            )
+
+    def _check_rate_limit(self, scope: Scope) -> None:
+        """Ask the injected limiter; no built-in policy means every request is allowed."""
+        if self._limiter is None:
+            return
+        retry_after = self._limiter(scope)
+        if retry_after is None:
+            return
+        raise ProtocolError(
+            429,
+            "rate_limited",
+            "rate limit: retry after the indicated delay",
+            headers={"Retry-After": _retry_after_value(retry_after)},
+        )
 
     def _handle_models(self, scope: Scope) -> dict[str, Any]:
         if scope.get("method") != "GET":
@@ -473,6 +539,41 @@ def _normalized(scores: Sequence[float]) -> list[float]:
     if total == 0:
         return [1 / len(scores) for _ in scores]
     return [score / total for score in scores]
+
+
+def _is_v1_path(path: str) -> bool:
+    return path.startswith(f"{V1_PREFIX}/")
+
+
+def _handle_probe(scope: Scope) -> dict[str, Any]:
+    """Answer a liveness or readiness probe without touching the engine."""
+    if scope.get("method") != "GET":
+        raise ProtocolError(
+            405,
+            "method_not_allowed",
+            "method: only GET is allowed",
+            headers={"Allow": "GET"},
+        )
+    return {"status": "ok"}
+
+
+def _bearer_token(headers: Iterable[tuple[bytes, bytes]]) -> bytes | None:
+    """Return the Bearer credential, or ``None`` for any malformed Authorization."""
+    values = _header_values(headers, AUTHORIZATION_HEADER)
+    if len(values) != 1:
+        return None
+    scheme, separator, credentials = values[0].strip().partition(" ")
+    credentials = credentials.strip()
+    if not separator or scheme.lower() != "bearer" or not credentials or " " in credentials:
+        return None
+    return credentials.encode("utf-8")
+
+
+def _retry_after_value(seconds: float) -> str:
+    """Render ``Retry-After`` as whole seconds, the RFC 9110 delay-seconds form."""
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("limiter retry-after must be finite and non-negative")
+    return str(math.ceil(seconds))
 
 
 def _check_transport_headers(headers: Iterable[tuple[bytes, bytes]]) -> None:

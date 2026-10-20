@@ -22,6 +22,7 @@ STUB_METADATA = MemberMetadata(
     release_date=date(2026, 1, 1),
     validated_context=8192,
 )
+REQUEST_ID_HEADER = "x-typesafe-request-id"
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,16 @@ class HttpResult:
     body: dict[str, Any]
     headers: dict[str, str]
     text: str
+
+
+def assert_error(result: HttpResult, status: int, code: str) -> None:
+    """Assert the documented error shape for a rejected request."""
+    assert result.status == status
+    assert set(result.body) == {"detail", "code"}
+    assert result.body["code"] == code
+    assert isinstance(result.body["detail"], str) and result.body["detail"]
+    assert "latency_ms" not in result.body
+    assert result.headers[REQUEST_ID_HEADER]
 
 
 def free_port() -> int:

@@ -152,6 +152,78 @@
       "status": "extension",
       "expected_behavior": "Reports the loaded member's validated context on every card.",
       "test_id": "tests/test_models.py::test_model_cards_report_the_loaded_member_metadata"
+    },
+    {
+      "id": "auth.default_open",
+      "surface": "security",
+      "item": "requests with no API key configured",
+      "status": "supported",
+      "expected_behavior": "Every endpoint is open; no Authorization header is required.",
+      "test_id": "tests/test_operations.py::test_without_an_api_key_every_endpoint_is_open"
+    },
+    {
+      "id": "auth.bearer",
+      "surface": "security",
+      "item": "Authorization: Bearer on /v1/*",
+      "status": "supported",
+      "expected_behavior": "When an API key is configured, every /v1/* route requires an exactly matching Bearer credential, compared in constant time.",
+      "test_id": "tests/test_operations.py::test_correct_bearer_is_accepted"
+    },
+    {
+      "id": "auth.key_not_logged",
+      "surface": "security",
+      "item": "configured API key in logs",
+      "status": "supported",
+      "expected_behavior": "The configured key and any presented credential are never written to the service log.",
+      "test_id": "tests/test_operations.py::test_api_key_is_never_logged"
+    },
+    {
+      "id": "auth.probes_unprotected",
+      "surface": "security",
+      "item": "GET /healthz and GET /readyz under an API key",
+      "status": "supported",
+      "expected_behavior": "Operator probes stay open regardless of the API key.",
+      "test_id": "tests/test_operations.py::test_probes_do_not_require_authentication"
+    },
+    {
+      "id": "error.unauthorized",
+      "surface": "error",
+      "item": "missing or invalid Bearer credential",
+      "status": "supported",
+      "expected_behavior": "Returns 401 with code unauthorized and WWW-Authenticate: Bearer; the credential is never echoed in the body.",
+      "test_id": "tests/test_operations.py::test_missing_or_invalid_bearer_is_unauthorized"
+    },
+    {
+      "id": "error.rate_limited",
+      "surface": "error",
+      "item": "injected limiter rejection",
+      "status": "supported",
+      "expected_behavior": "Returns 429 with code rate_limited and a Retry-After delay in whole seconds; the default with no limiter allows every request.",
+      "test_id": "tests/test_operations.py::test_rejecting_limiter_returns_429_with_a_valid_retry_after"
+    },
+    {
+      "id": "error.overloaded",
+      "surface": "error",
+      "item": "service draining or over capacity",
+      "status": "supported",
+      "expected_behavior": "Returns 529 with code overloaded while the injected overload hook reports true; the hook is switchable at runtime.",
+      "test_id": "tests/test_operations.py::test_overload_hook_is_switchable_and_returns_529"
+    },
+    {
+      "id": "endpoint.healthz",
+      "surface": "endpoint",
+      "item": "GET /healthz",
+      "status": "extension",
+      "expected_behavior": "Liveness probe returning {status: \"ok\"} with a request id; operator probes bypass authentication, rate limiting, and overload rejection.",
+      "test_id": "tests/test_operations.py::test_probes_bypass_the_limiter_and_overload_hooks"
+    },
+    {
+      "id": "endpoint.readyz",
+      "surface": "endpoint",
+      "item": "GET /readyz",
+      "status": "extension",
+      "expected_behavior": "Readiness probe returning {status: \"ok\"} with a request id; operator probes bypass authentication, rate limiting, and overload rejection.",
+      "test_id": "tests/test_operations.py::test_probes_bypass_the_limiter_and_overload_hooks"
     }
   ]
 }

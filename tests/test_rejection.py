@@ -17,16 +17,17 @@ import pytest
 from stim_serve.app import create_app
 from stim_systemone import Decision, Question, StubDecisionEngine
 from tests.http_support import (
+    REQUEST_ID_HEADER,
     STUB_METADATA,
     HttpResult,
     ServerAddress,
+    assert_error,
     post,
     read_raw_response,
     request,
     running_server,
 )
 
-REQUEST_ID_HEADER = "x-typesafe-request-id"
 BODY_LIMIT = 32 * 1024 * 1024
 NOUL = {"type": "noul", "instructions": "Is this about billing?"}
 PAYLOAD = {"state": "I was charged twice.", "questions": {"billing": NOUL}}
@@ -36,15 +37,6 @@ PAYLOAD = {"state": "I was charged twice.", "questions": {"billing": NOUL}}
 def server() -> Iterator[ServerAddress]:
     with running_server(create_app(StubDecisionEngine())) as address:
         yield address
-
-
-def assert_rejected(result: HttpResult, status: int, code: str) -> None:
-    assert result.status == status
-    assert set(result.body) == {"detail", "code"}
-    assert result.body["code"] == code
-    assert isinstance(result.body["detail"], str) and result.body["detail"]
-    assert "latency_ms" not in result.body
-    assert result.headers[REQUEST_ID_HEADER]
 
 
 def post_head(*header_lines: str) -> bytes:
@@ -105,7 +97,7 @@ def test_state_plus_one_question_over_the_context_limit_returns_400() -> None:
         rejected_result = post(address, rejected, headers={REQUEST_ID_HEADER: "row-1"})
 
     assert accepted_result.status == 200
-    assert_rejected(rejected_result, 400, "max_tokens_exceeded")
+    assert_error(rejected_result, 400, "max_tokens_exceeded")
     assert "11" in rejected_result.body["detail"]
     assert "10" in rejected_result.body["detail"]
     assert rejected_result.headers[REQUEST_ID_HEADER] == "row-1"
@@ -128,7 +120,7 @@ def test_context_limit_counts_choice_option_text() -> None:
         rejected_result = post(address, rejected)
 
     assert accepted_result.status == 200
-    assert_rejected(rejected_result, 400, "max_tokens_exceeded")
+    assert_error(rejected_result, 400, "max_tokens_exceeded")
     assert "11" in rejected_result.body["detail"]
     assert "10" in rejected_result.body["detail"]
 
@@ -138,20 +130,20 @@ def test_context_limit_counts_choice_option_text() -> None:
 def test_extension_routes_are_not_registered(server: ServerAddress, path: str, method: str) -> None:
     result = request(server, method, path, PAYLOAD if method == "POST" else None)
 
-    assert_rejected(result, 404, "not_found")
+    assert_error(result, 404, "not_found")
 
 
 def test_wrong_method_is_rejected_with_allow(server: ServerAddress) -> None:
     result = request(server, "GET", "/v1/systemone")
 
-    assert_rejected(result, 405, "method_not_allowed")
+    assert_error(result, 405, "method_not_allowed")
     assert result.headers["allow"] == "POST"
 
 
 def test_unknown_model_returns_404(server: ServerAddress) -> None:
     result = post(server, {**PAYLOAD, "model": "stim-9b"})
 
-    assert_rejected(result, 404, "model_not_found")
+    assert_error(result, 404, "model_not_found")
     assert "stim-9b" in result.body["detail"]
 
 
@@ -167,7 +159,7 @@ def test_oversized_content_length_is_rejected_before_reading_the_body(
         sock.sendall(head)
         result = read_raw_response(sock)
 
-    assert_rejected(result, 413, "payload_too_large")
+    assert_error(result, 413, "payload_too_large")
     assert str(BODY_LIMIT) in result.body["detail"]
 
 
@@ -178,7 +170,7 @@ def test_oversized_chunked_body_is_rejected_while_reading(server: ServerAddress)
     # No terminating chunk: a server that waits for the whole body cannot answer.
     result = chunked_post(server, chunks, terminate=False)
 
-    assert_rejected(result, 413, "payload_too_large")
+    assert_error(result, 413, "payload_too_large")
     assert str(BODY_LIMIT) in result.body["detail"]
 
 
@@ -194,7 +186,7 @@ def test_oversized_chunked_body_is_rejected_while_reading(server: ServerAddress)
 def test_non_json_content_type_returns_415(server: ServerAddress, content_type: str | None) -> None:
     result = post(server, PAYLOAD, content_type=content_type)
 
-    assert_rejected(result, 415, "unsupported_media_type")
+    assert_error(result, 415, "unsupported_media_type")
     assert "content-type" in result.body["detail"]
 
 
@@ -215,7 +207,7 @@ def test_json_content_types_are_accepted(server: ServerAddress, content_type: st
 def test_non_identity_content_encoding_returns_415(server: ServerAddress, encoding: str) -> None:
     result = post(server, PAYLOAD, headers={"Content-Encoding": encoding})
 
-    assert_rejected(result, 415, "unsupported_content_encoding")
+    assert_error(result, 415, "unsupported_content_encoding")
     assert "content-encoding" in result.body["detail"]
 
 
@@ -232,7 +224,7 @@ def test_identity_content_encoding_is_accepted(server: ServerAddress, encoding: 
 def test_assets_are_rejected_explicitly(server: ServerAddress, assets: object) -> None:
     result = post(server, {**PAYLOAD, "assets": assets})
 
-    assert_rejected(result, 415, "unsupported_media_type")
+    assert_error(result, 415, "unsupported_media_type")
     assert "assets" in result.body["detail"]
 
 
@@ -308,7 +300,7 @@ def test_invalid_requests_return_422_naming_the_field(
 ) -> None:
     result = post(server, payload)
 
-    assert_rejected(result, 422, "invalid_request")
+    assert_error(result, 422, "invalid_request")
     assert field in result.body["detail"]
 
 
@@ -326,14 +318,14 @@ def test_invalid_requests_do_not_echo_caller_content(server: ServerAddress) -> N
 
     result = post(server, payload)
 
-    assert_rejected(result, 422, "invalid_request")
+    assert_error(result, 422, "invalid_request")
     assert "SECRET" not in result.text
 
 
 def test_malformed_json_does_not_echo_the_body(server: ServerAddress) -> None:
     result = post(server, b'{"state": "SECRET_STATE_VALUE"')
 
-    assert_rejected(result, 422, "invalid_request")
+    assert_error(result, 422, "invalid_request")
     assert "SECRET_STATE_VALUE" not in result.text
 
 
@@ -352,7 +344,7 @@ def test_row_limit_errors_do_not_echo_caller_content() -> None:
     with running_server(create_app(StubDecisionEngine(), max_context=3)) as address:
         result = post(address, payload)
 
-    assert_rejected(result, 400, "max_tokens_exceeded")
+    assert_error(result, 400, "max_tokens_exceeded")
     assert "SECRET" not in result.text
 
 
@@ -371,7 +363,7 @@ def test_internal_errors_return_500_without_details() -> None:
     with running_server(create_app(FailingEngine())) as address:
         result = post(address, PAYLOAD, headers={REQUEST_ID_HEADER: "failure-1"})
 
-    assert_rejected(result, 500, "internal_error")
+    assert_error(result, 500, "internal_error")
     assert result.headers[REQUEST_ID_HEADER] == "failure-1"
     assert "SECRET_INTERNAL_DETAILS" not in result.text
 
