@@ -10,9 +10,18 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, cast
 
 import uvicorn
+
+from stim_systemone import MemberMetadata
+
+STUB_METADATA = MemberMetadata(
+    description="Deterministic stub of a Stim decision member.",
+    release_date=date(2026, 1, 1),
+    validated_context=8192,
+)
 
 
 @dataclass(frozen=True)

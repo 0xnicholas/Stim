@@ -4,7 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class MemberMetadata:
+    """Catalog metadata for the one member this process serves.
+
+    ``description`` is the English card text, ``release_date`` is the member's release
+    date, and ``validated_context`` is the longest state length its published evaluation
+    supports, which is distinct from the serving ``max_state`` limit.
+    """
+
+    description: str
+    release_date: date
+    validated_context: int
 
 
 @dataclass(frozen=True)
@@ -39,6 +54,11 @@ class DecisionEngine(Protocol):
     @property
     def member_name(self) -> str:
         """The loaded member's name, reported as the response's model."""
+        ...
+
+    @property
+    def catalog_metadata(self) -> MemberMetadata:
+        """Catalog metadata for the loaded member."""
         ...
 
     def count_tokens(self, text: str) -> int:

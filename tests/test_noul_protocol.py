@@ -18,7 +18,7 @@ from typesafe_sdk import AsyncTypeSafeClient, Noul, SystemOneResponse, TypeSafeC
 
 from stim_serve.app import create_app
 from stim_systemone import Decision, Question, StubDecisionEngine
-from tests.http_support import ServerAddress, post, request, running_server
+from tests.http_support import STUB_METADATA, ServerAddress, post, request, running_server
 
 REQUEST_ID_HEADER = "x-typesafe-request-id"
 NOUL_QUESTION = {"type": "noul", "instructions": "Is this about billing?"}
@@ -36,6 +36,7 @@ def server() -> Iterator[ServerAddress]:
 
 class TestEngine:
     member_name = "stim-stub"
+    catalog_metadata = STUB_METADATA
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())

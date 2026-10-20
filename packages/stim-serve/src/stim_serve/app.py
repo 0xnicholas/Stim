@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
-
 from fastapi import FastAPI
 
 from stim_serve import __version__
 from stim_systemone import DecisionEngine, StubDecisionEngine, SystemOneApp
-from stim_systemone.protocol import DEFAULT_MAX_STATE, DEFAULT_MODEL_ALIASES
+from stim_systemone.protocol import DEFAULT_MAX_STATE
 
 
 def create_app(
@@ -16,7 +14,6 @@ def create_app(
     *,
     max_state: int = DEFAULT_MAX_STATE,
     max_context: int | None = None,
-    model_aliases: Collection[str] = DEFAULT_MODEL_ALIASES,
 ) -> FastAPI:
     """Build the service app around a decision engine.
 
@@ -38,7 +35,6 @@ def create_app(
             engine if engine is not None else StubDecisionEngine(),
             max_state=max_state,
             max_context=max_context,
-            model_aliases=model_aliases,
         ),
     )
     return app

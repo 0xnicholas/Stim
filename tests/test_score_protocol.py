@@ -16,7 +16,7 @@ from typesafe_sdk import AsyncTypeSafeClient, Score, TypeSafeClient
 
 from stim_serve.app import create_app
 from stim_systemone import Decision, Question, StubDecisionEngine
-from tests.http_support import ServerAddress, post, running_server
+from tests.http_support import STUB_METADATA, ServerAddress, post, running_server
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +29,7 @@ class RecordingEngine:
     """A ``DecisionEngine`` that records the protocol layer's normalized inputs."""
 
     member_name = "stim-stub"
+    catalog_metadata = STUB_METADATA
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Question, ...]]] = []

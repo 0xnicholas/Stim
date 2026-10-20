@@ -17,6 +17,7 @@ import pytest
 from stim_serve.app import create_app
 from stim_systemone import Decision, Question, StubDecisionEngine
 from tests.http_support import (
+    STUB_METADATA,
     HttpResult,
     ServerAddress,
     post,
@@ -357,6 +358,7 @@ def test_row_limit_errors_do_not_echo_caller_content() -> None:
 
 class FailingEngine:
     member_name = "stim-stub"
+    catalog_metadata = STUB_METADATA
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())

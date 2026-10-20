@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from stim_systemone.engine import Decision, DecisionEngine, Option, Question
+from stim_systemone.engine import Decision, DecisionEngine, MemberMetadata, Option, Question
 from stim_systemone.protocol import SystemOneApp
 from stim_systemone.rendering import render_content, render_option
 from stim_systemone.stub import StubDecisionEngine
@@ -23,6 +23,7 @@ __all__ = [
     "ChoiceQuestion",
     "Decision",
     "DecisionEngine",
+    "MemberMetadata",
     "NoulCriteria",
     "NoulQuestion",
     "Option",

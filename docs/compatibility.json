@@ -56,6 +56,102 @@
       "status": "supported",
       "expected_behavior": "A request answered alone or alongside different concurrent requests returns the same answers, within the committed 0.011 per-probability tolerance.",
       "test_id": "tests/test_forward_compat.py::test_cross_request_batch_composition_does_not_change_answers"
+    },
+    {
+      "id": "endpoint.models",
+      "surface": "endpoint",
+      "item": "GET /v1/models",
+      "status": "supported",
+      "expected_behavior": "Returns exactly {models: [...]} with a request id and no latency_ms.",
+      "test_id": "tests/test_models.py::test_models_endpoint_lists_the_latest_alias_and_loaded_member"
+    },
+    {
+      "id": "endpoint.models.sdk_sync",
+      "surface": "endpoint",
+      "item": "GET /v1/models through the official sync SDK",
+      "status": "supported",
+      "expected_behavior": "The official TypeSafe sync client parses the catalog, including the registered extension fields it does not model.",
+      "test_id": "tests/test_models.py::test_official_sync_sdk_parses_the_model_list"
+    },
+    {
+      "id": "endpoint.models.sdk_async",
+      "surface": "endpoint",
+      "item": "GET /v1/models through the official async SDK",
+      "status": "supported",
+      "expected_behavior": "The official TypeSafe async client parses the catalog with the same names as the sync client.",
+      "test_id": "tests/test_models.py::test_official_async_sdk_parses_the_model_list"
+    },
+    {
+      "id": "model.default",
+      "surface": "request_field",
+      "item": "model omitted from POST /v1/systemone",
+      "status": "supported",
+      "expected_behavior": "Defaults to stim-latest, which resolves to the loaded member; the response reports the member's name.",
+      "test_id": "tests/test_models.py::test_omitted_model_uses_the_latest_alias_and_reports_the_member"
+    },
+    {
+      "id": "model.alias.stim-latest",
+      "surface": "model_alias",
+      "item": "stim-latest",
+      "status": "supported",
+      "expected_behavior": "Accepted and mapped to the loaded member.",
+      "test_id": "tests/test_models.py::test_alias_requests_always_report_the_loaded_member"
+    },
+    {
+      "id": "model.alias.jev-latest",
+      "surface": "model_alias",
+      "item": "jev-latest",
+      "status": "supported",
+      "expected_behavior": "Accepted so an unconfigured official SDK client connects, and mapped to the loaded member without being reported as the serving model.",
+      "test_id": "tests/test_models.py::test_unconfigured_official_sdk_uses_jev_latest_and_gets_the_member"
+    },
+    {
+      "id": "model.response_member",
+      "surface": "response_field",
+      "item": "model in POST /v1/systemone responses",
+      "status": "supported",
+      "expected_behavior": "Always the loaded member's name, even when the request used an alias.",
+      "test_id": "tests/test_models.py::test_alias_requests_always_report_the_loaded_member"
+    },
+    {
+      "id": "model.unknown",
+      "surface": "error",
+      "item": "unknown model name",
+      "status": "supported",
+      "expected_behavior": "Returns 404 with code model_not_found and the requested name in detail.",
+      "test_id": "tests/test_models.py::test_unknown_model_returns_model_not_found"
+    },
+    {
+      "id": "models.catalog.single_member",
+      "surface": "model_catalog",
+      "item": "members listed by GET /v1/models",
+      "status": "supported",
+      "expected_behavior": "Lists exactly stim-latest and the one loaded member; never lists jev-latest or an unloaded member.",
+      "test_id": "tests/test_models.py::test_catalog_lists_exactly_one_loaded_member"
+    },
+    {
+      "id": "models.card.fields",
+      "surface": "model_catalog",
+      "item": "required model card fields",
+      "status": "supported",
+      "expected_behavior": "Every card carries name, an English description, an ISO 8601 release_date, and the registered Stim extension fields.",
+      "test_id": "tests/test_models.py::test_model_cards_carry_the_documented_fields"
+    },
+    {
+      "id": "models.card.max_state_tokens",
+      "surface": "extension",
+      "item": "max_state_tokens",
+      "status": "extension",
+      "expected_behavior": "Reports the configured serving max-state on every card.",
+      "test_id": "tests/test_models.py::test_model_cards_report_the_serving_state_limit"
+    },
+    {
+      "id": "models.card.validated_context",
+      "surface": "extension",
+      "item": "validated_context",
+      "status": "extension",
+      "expected_behavior": "Reports the loaded member's validated context on every card.",
+      "test_id": "tests/test_models.py::test_model_cards_report_the_loaded_member_metadata"
     }
   ]
 }

@@ -12,9 +12,20 @@ The `stim-systemone` console entry point reports the installed protocol-layer ve
 ## Implemented surface
 
 The current vertical slice serves `POST /v1/systemone` for `noul`, `choice`, and `score`
-questions through `SystemOneApp`, a pure ASGI application. A `DecisionEngine` receives
-the rendered state and normalized questions and returns raw option scores plus an input
-token count; every wire concern stays in this package.
+questions, plus `GET /v1/models`, through `SystemOneApp`, a pure ASGI application. A
+`DecisionEngine` receives the rendered state and normalized questions and returns raw
+option scores plus an input token count; it also exposes the loaded member's name and
+catalog metadata. Every wire concern stays in this package.
+
+- An omitted `model` defaults to `stim-latest`. `stim-latest` and `jev-latest` are
+  aliases for the loaded member; every successful `POST /v1/systemone` response reports
+  that member's name, never an alias. Any other name returns `404 model_not_found`.
+- `GET /v1/models` returns exactly `stim-latest` and the one loaded member. `jev-latest`
+  is never advertised, and a process never lists a member it has not loaded.
+- Every card carries `name`, an English `description`, an ISO 8601 `release_date`, and
+  the registered Stim extension fields `max_state_tokens` (the configured serving limit)
+  and `validated_context` (from the member's metadata). The official TypeSafe SDK ignores
+  the extension fields when it parses the list.
 
 - A noul answer is exactly `{"type": "noul", "noul": p}`, where `p` is the probability
   of yes. It never carries `confidence`.
@@ -51,8 +62,9 @@ token count; every wire concern stays in this package.
 - `usage.input_tokens` counts the rendered state plus each question branch, and
   `usage.output_tokens` counts the serialized answers. Both are integer workload counts,
   **not billing units**: this slice has no generation step and no per-token charge.
-- `latency_ms` appears only on successful responses and is rounded to one decimal place.
-  It is the only extra field a success response carries.
+- `latency_ms` appears only on successful `POST /v1/systemone` responses and is rounded
+  to one decimal place. It is the only extra field those responses carry; the models
+  catalog is exactly `{models: [...]}`.
 - `state` is limited to `max_state` tokens (default 8192; the future CLI flag will be
   `--max-state`). An overlong state returns `400 max_tokens_exceeded` with the actual and
   maximum token counts.
@@ -76,7 +88,7 @@ token count; every wire concern stays in this package.
 | 400 | `max_tokens_exceeded` | state or one state-plus-question row over the limit |
 | 404 | `not_found` | unknown path, including unregistered extension routes |
 | 404 | `model_not_found` | unknown model name |
-| 405 | `method_not_allowed` | any method other than `POST` on `/v1/systemone` |
+| 405 | `method_not_allowed` | any method other than `POST` on `/v1/systemone` or `GET` on `/v1/models` |
 | 413 | `payload_too_large` | body over 32 MiB |
 | 415 | `unsupported_media_type` | non-JSON content type, multipart, or `assets` |
 | 415 | `unsupported_content_encoding` | content encoding other than identity |

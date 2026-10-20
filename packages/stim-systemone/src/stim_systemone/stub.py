@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import date
 
-from stim_systemone.engine import Decision, Question
+from stim_systemone.engine import Decision, MemberMetadata, Question
 
 _WORD = re.compile(r"\S+")
+_STUB_METADATA = MemberMetadata(
+    description="Deterministic stub of a Stim decision member.",
+    release_date=date(2026, 1, 1),
+    validated_context=8192,
+)
 
 
 class StubDecisionEngine:
@@ -24,8 +30,10 @@ class StubDecisionEngine:
         member_name: str = "stim-stub",
         yes_probability: float = 0.75,
         raw_scores: Mapping[str, Sequence[float]] | None = None,
+        catalog_metadata: MemberMetadata = _STUB_METADATA,
     ) -> None:
         self._member_name = member_name
+        self._catalog_metadata = catalog_metadata
         self._yes_probability = yes_probability
         self._raw_scores = {name: tuple(scores) for name, scores in (raw_scores or {}).items()}
 
@@ -33,6 +41,11 @@ class StubDecisionEngine:
     def member_name(self) -> str:
         """The name reported as the serving member."""
         return self._member_name
+
+    @property
+    def catalog_metadata(self) -> MemberMetadata:
+        """Catalog metadata for the stub member."""
+        return self._catalog_metadata
 
     def count_tokens(self, text: str) -> int:
         """Count whitespace-separated tokens, standing in for a real tokenizer."""

@@ -10,7 +10,6 @@ import time
 from collections.abc import (
     Awaitable,
     Callable,
-    Collection,
     Iterable,
     Mapping,
     MutableMapping,
@@ -43,8 +42,10 @@ Send = Callable[[Message], Awaitable[None]]
 REQUEST_ID_HEADER = b"x-typesafe-request-id"
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._~-]{1,128}")
 SYSTEM_ONE_PATH = "/v1/systemone"
+MODELS_PATH = "/v1/models"
 DEFAULT_MAX_STATE = 8192
-DEFAULT_MODEL_ALIASES = (DEFAULT_MODEL, "jev-latest")
+MODEL_ALIASES = frozenset({DEFAULT_MODEL, "jev-latest"})
+LATEST_ALIAS_DESCRIPTION = "Latest released Stim decision member."
 MAX_BODY_BYTES = 32 * 1024 * 1024
 JSON_MEDIA_TYPE = "application/json"
 UNKNOWN_FIELD_MESSAGE = "ignored unknown request field: "
@@ -91,7 +92,6 @@ class SystemOneApp:
         *,
         max_state: int = DEFAULT_MAX_STATE,
         max_context: int | None = None,
-        model_aliases: Collection[str] = DEFAULT_MODEL_ALIASES,
     ) -> None:
         if max_state < 1:
             raise ValueError("max_state must be positive")
@@ -100,7 +100,6 @@ class SystemOneApp:
         self._engine = engine
         self._max_state = max_state
         self._max_context = max_context
-        self._model_aliases = frozenset(model_aliases)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -111,8 +110,13 @@ class SystemOneApp:
 
         request_id = _request_id(scope.get("headers", []))
         started = time.perf_counter()
+        include_latency = True
         try:
-            payload = await self._handle(scope, receive)
+            if scope.get("path") == MODELS_PATH:
+                include_latency = False
+                payload = self._handle_models(scope)
+            else:
+                payload = await self._handle(scope, receive)
         except _ClientDisconnected:
             return
         except ProtocolError as error:
@@ -138,8 +142,33 @@ class SystemOneApp:
             )
             return
 
-        payload["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        if include_latency:
+            payload["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
         await self._send_json(send, 200, payload, request_id)
+
+    def _handle_models(self, scope: Scope) -> dict[str, Any]:
+        if scope.get("method") != "GET":
+            raise ProtocolError(
+                405,
+                "method_not_allowed",
+                "method: only GET is allowed",
+                headers={"Allow": "GET"},
+            )
+        return {"models": self._model_cards()}
+
+    def _model_cards(self) -> list[dict[str, Any]]:
+        """Describe ``stim-latest`` and the one loaded member this process serves."""
+        metadata = self._engine.catalog_metadata
+        member_name = self._engine.member_name
+        common = {
+            "release_date": metadata.release_date.isoformat(),
+            "max_state_tokens": self._max_state,
+            "validated_context": metadata.validated_context,
+        }
+        cards = [{"name": DEFAULT_MODEL, "description": LATEST_ALIAS_DESCRIPTION, **common}]
+        if member_name != DEFAULT_MODEL:
+            cards.append({"name": member_name, "description": metadata.description, **common})
+        return cards
 
     async def _handle(self, scope: Scope, receive: Receive) -> dict[str, Any]:
         path = scope.get("path", "")
@@ -192,7 +221,7 @@ class SystemOneApp:
 
     def _resolve_model(self, requested: str) -> str:
         member_name = self._engine.member_name
-        if requested == member_name or requested in self._model_aliases:
+        if requested == member_name or requested in MODEL_ALIASES:
             return member_name
         raise ProtocolError(404, "model_not_found", f"model: unknown model {requested!r}")
 
