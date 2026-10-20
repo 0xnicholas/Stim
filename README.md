@@ -139,6 +139,14 @@ image backbone, and a coordinate head. Claiming "fully compatible" while returni
 422 for `box` would make the claim meaningless. The README, the SDK conformance tests,
 and the per-field compatibility matrix are meant to say the same thing.
 
+Forward-compatible clients are safe by default. Unknown request fields — including an
+SDK `extra_body.temperature` — and the `TypeSafe-Danger-Zone-Long-Context` header are
+accepted and ignored; each ignored field is logged by path, never by value, and the
+configured state limit still applies. Questions within one request are answered
+independently, and repeated or re-batched requests agree within the published 0.011
+probability tolerance. These rows live in
+[`docs/compatibility.json`](docs/compatibility.json).
+
 The derived quantities follow the published reference formulas rather than model output:
 
 - **`noul`** returns the probability of "yes" and no `confidence` field.

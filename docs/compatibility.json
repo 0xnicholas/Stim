@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "request.unknown_fields",
+      "surface": "request_field",
+      "item": "any unknown request field",
+      "status": "ignored",
+      "expected_behavior": "Ignored at every request-schema level; each field path is logged as a warning without its value, and answers and usage do not change.",
+      "test_id": "tests/test_forward_compat.py::test_unknown_fields_at_every_level_are_ignored_and_logged"
+    },
+    {
+      "id": "request.extra_body.temperature",
+      "surface": "request_field",
+      "item": "extra_body.temperature (sent as the top-level temperature field)",
+      "status": "ignored",
+      "expected_behavior": "Accepted and ignored; probabilities always use the loaded member's fitted temperature.",
+      "test_id": "tests/test_forward_compat.py::test_sdk_extra_body_temperature_is_accepted_and_ignored"
+    },
+    {
+      "id": "header.typesafe-danger-zone-long-context",
+      "surface": "request_header",
+      "item": "TypeSafe-Danger-Zone-Long-Context",
+      "status": "ignored",
+      "expected_behavior": "Accepted and ignored; it never changes answers or usage.",
+      "test_id": "tests/test_forward_compat.py::test_danger_zone_long_context_header_is_accepted_and_ignored"
+    },
+    {
+      "id": "limit.danger-zone-long-context",
+      "surface": "limit",
+      "item": "TypeSafe-Danger-Zone-Long-Context versus max-state",
+      "status": "supported",
+      "expected_behavior": "The header does not raise the serving limit; state over the configured max-state still returns 400 max_tokens_exceeded.",
+      "test_id": "tests/test_forward_compat.py::test_danger_zone_header_does_not_raise_the_state_limit"
+    },
+    {
+      "id": "request.question_isolation",
+      "surface": "semantics",
+      "item": "questions answered alone versus with siblings",
+      "status": "supported",
+      "expected_behavior": "Answers are independent of sibling questions; the deterministic stub asserts exact equality and the model-backed committed tolerance is 0.011 per probability.",
+      "test_id": "tests/test_forward_compat.py::test_each_question_is_answered_identically_alone_or_with_siblings"
+    },
+    {
+      "id": "request.repeated_requests",
+      "surface": "semantics",
+      "item": "repeated identical requests",
+      "status": "supported",
+      "expected_behavior": "Repeated requests return the same answers within the committed 0.011 per-probability tolerance.",
+      "test_id": "tests/test_forward_compat.py::test_repeated_requests_return_identical_answers"
+    },
+    {
+      "id": "request.cross_request_batching",
+      "surface": "semantics",
+      "item": "cross-request batch composition",
+      "status": "supported",
+      "expected_behavior": "A request answered alone or alongside different concurrent requests returns the same answers, within the committed 0.011 per-probability tolerance.",
+      "test_id": "tests/test_forward_compat.py::test_cross_request_batch_composition_does_not_change_answers"
+    }
+  ]
+}

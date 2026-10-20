@@ -86,6 +86,32 @@ token count; every wire concern stays in this package.
 `StubDecisionEngine` is a deterministic engine used by the protocol tests; it implements
 the same contract as a model-backed engine and never handles HTTP or wire types.
 
+## Forward compatibility and question isolation
+
+Unknown request fields are ignored at every level of the request schema: the body
+(including SDK `extra_body` keys such as `temperature`), each question object, and
+`noul.criteria`. Ignoring never changes an answer or `usage`. Each ignored field is
+logged as a warning on the `stim_systemone` logger by dotted path — for example
+`questions.billing.unexpected` — and field values are never logged. Non-printable
+characters in caller-chosen path segments are escaped, so keys cannot forge log lines.
+Keys inside caller content (`state`, `instructions`, choice descriptions, and score
+levels) are content, not request fields, and are never reported this way.
+
+`extra_body.temperature` is therefore accepted and ignored: the SDK merges it into the
+request body as a top-level `temperature` field, and probabilities always come from the
+loaded member's fitted temperature.
+
+`TypeSafe-Danger-Zone-Long-Context` is accepted and ignored. It does not enable a 262k
+limit: `state` is still validated against the configured `max_state` (and, when
+configured, `max_context`).
+
+Questions within one request are answered independently. With a deterministic engine, a
+question answered alone and answered beside sibling questions produces identical
+answers; repeated requests and different cross-request batch compositions likewise
+agree exactly. Against a model-backed engine the committed tolerance is 0.011 per
+probability. These rows are registered in the
+[compatibility matrix](../../docs/compatibility.json).
+
 ## Content rendering
 
 `stim_systemone.rendering` is the single renderer for every piece of caller content:

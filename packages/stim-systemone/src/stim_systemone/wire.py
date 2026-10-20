@@ -6,8 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-# Unknown fields are ignored recursively, as the compatibility surface requires. Nested
-# content is carried as JSON so caller-defined keys and order survive validation.
+# Unknown fields are ignored recursively, as the compatibility surface requires; the
+# protocol layer logs each ignored path without its value. Nested content is carried as
+# JSON so caller-defined keys and order survive validation.
 STRICT_WIRE_MODEL = ConfigDict(extra="ignore", strict=True)
 DEFAULT_MODEL = "stim-latest"
 

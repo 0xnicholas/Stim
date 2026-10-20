@@ -26,6 +26,7 @@ from stim_systemone.rendering import render_content, render_option
 from stim_systemone.wire import (
     DEFAULT_MODEL,
     ChoiceQuestion,
+    NoulCriteria,
     NoulQuestion,
     QuestionModel,
     ScoreQuestion,
@@ -46,6 +47,12 @@ DEFAULT_MAX_STATE = 8192
 DEFAULT_MODEL_ALIASES = (DEFAULT_MODEL, "jev-latest")
 MAX_BODY_BYTES = 32 * 1024 * 1024
 JSON_MEDIA_TYPE = "application/json"
+UNKNOWN_FIELD_MESSAGE = "ignored unknown request field: "
+_BODY_FIELDS = frozenset(SystemOneRequest.model_fields)
+_QUESTION_FIELDS = frozenset(
+    field for model in (NoulQuestion, ChoiceQuestion, ScoreQuestion) for field in model.model_fields
+)
+_CRITERIA_FIELDS_BY_TYPE = {"noul": frozenset(NoulCriteria.model_fields)}
 
 
 class ProtocolError(Exception):
@@ -148,7 +155,9 @@ class SystemOneApp:
         _check_transport_headers(scope.get("headers", []))
 
         data = _decode_json(await _read_body(receive))
-        request, questions = _parse_request(data)
+        request, questions, unknown_fields = _parse_request(data)
+        for path in unknown_fields:
+            LOGGER.warning("%s%s", UNKNOWN_FIELD_MESSAGE, _safe_log_text(path))
 
         state_text = render_content(request.state)
         state_tokens = self._engine.count_tokens(state_text)
@@ -234,7 +243,7 @@ class SystemOneApp:
                 return
 
 
-def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionModel]]:
+def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionModel], list[str]]:
     if not isinstance(data, dict):
         _invalid("body: request body must be a JSON object")
     if "assets" in data:
@@ -276,7 +285,42 @@ def _parse_request(data: object) -> tuple[SystemOneRequest, dict[str, QuestionMo
                 if not option_name:
                     _invalid(f"questions.{name}.criteria: option names must be non-empty strings")
         questions[name] = question
-    return request, questions
+    return request, questions, _unknown_field_paths(data)
+
+
+def _unknown_field_paths(data: Mapping[str, Any]) -> list[str]:
+    """List ignored request fields by dotted path, never by value.
+
+    Only the request schema is inspected, and the caller has already been validated,
+    so ``questions`` is a mapping of objects. Caller-defined content inside ``state``,
+    ``instructions``, choice descriptions, and score levels is content, not request
+    fields, so its keys are never reported.
+    """
+    questions: dict[str, dict[str, Any]] = data["questions"]
+    paths = [name for name in data if name not in _BODY_FIELDS]
+    for name, raw in questions.items():
+        prefix = f"questions.{name}"
+        paths.extend(f"{prefix}.{field}" for field in raw if field not in _QUESTION_FIELDS)
+        criteria = raw.get("criteria")
+        criteria_fields = _CRITERIA_FIELDS_BY_TYPE.get(raw["type"])
+        if criteria_fields is not None and isinstance(criteria, dict):
+            paths.extend(
+                f"{prefix}.criteria.{field}" for field in criteria if field not in criteria_fields
+            )
+    return paths
+
+
+def _safe_log_text(text: str) -> str:
+    """Escape non-printable characters so caller keys cannot forge log lines."""
+    escaped: list[str] = []
+    for char in text:
+        if char.isprintable():
+            escaped.append(char)
+        elif ord(char) <= 0xFFFF:
+            escaped.append(f"\\u{ord(char):04x}")
+        else:
+            escaped.append(f"\\U{ord(char):08x}")
+    return "".join(escaped)
 
 
 def _invalid(detail: str) -> NoReturn:
