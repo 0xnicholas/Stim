@@ -50,4 +50,5 @@ jobs:
           done
           uv venv /tmp/stim-wheels
           uv pip install --python /tmp/stim-wheels/bin/python --no-deps dist/*.whl
+          uv pip install --python /tmp/stim-wheels/bin/python pydantic
           /tmp/stim-wheels/bin/python -c "import stim_systemone, stim_ai, stim_serve"
